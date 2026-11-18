@@ -10,7 +10,31 @@ read, write, and understand each other's data.
 You supply the application checks and business assertions. ReleaseProof supplies
 the baseline gate, clean database state, cross-version execution, and evidence.
 
-<!-- ACTUAL_DEMO_OUTPUT -->
+Recorded terminal excerpts from [real PostgreSQL executions in CI](https://github.com/REinstall-SyS/ReleaseProof/actions/runs/44281911800):
+
+```text
+Migration: sql/002_unsafe.sql
+[PASS] Old application reads the baseline schema (baseline, 350 ms)
+[FAIL] Old application reads the migrated schema (old-after, 424 ms)
+  GET /users/7 returned HTTP 500; expected 200
+  Response: {"error":"ERROR: column \"full_name\" does not exist (SQLSTATE 42703)"}
+[PASS] New application reads the migrated schema (new-after, 409 ms)
+[FAIL] Old writes then new reads the same user (old-to-new, 662 ms)
+[FAIL] New writes then old reads the same user (new-to-old, 705 ms)
+RESULT: INCOMPATIBLE (5088 ms)
+
+Migration: sql/002_expand.sql
+[PASS] Old application reads the baseline schema (baseline, 363 ms)
+[PASS] Old application reads the migrated schema (old-after, 414 ms)
+[PASS] New application reads the migrated schema (new-after, 417 ms)
+[PASS] Old writes then new reads the same user (old-to-new, 654 ms)
+[PASS] New writes then old reads the same user (new-to-old, 669 ms)
+[PASS] Both versions repeatedly update a multiword name (mixed-update, 670 ms)
+RESULT: COMPATIBLE (5078 ms)
+```
+
+These excerpts omit detailed repeated logs. The current CLI prints the whole
+matrix and verdict first, then bounded diagnostics; JSON/HTML retain full evidence.
 
 ## Try the rolling-deployment demo
 
@@ -186,6 +210,9 @@ The benchmark script records machine/Docker details, fixture size, run count,
 startup, migration, scenario, and total durations. A first local invocation is
 reported separately from repeated invocations; existing registry/image/build caches
 affect startup cost. No performance figures are claimed without recorded output.
+The [recorded benchmark](docs/benchmarks.md) measured 51.59 s on the first run
+(including image pulls/builds), then 9.88 s and 7.85 s on repeated runs; these are
+small synthetic-fixture measurements on one hosted runner.
 
 ## Trust and scope
 

@@ -8,6 +8,19 @@ The downloadable `benchmark-evidence` artifact contains the complete
 `measurements.json`, every scenario timing, image IDs, initial image/build-cache
 inventory, and terminal/JSON/HTML reports.
 
+| Complete safe check | Wall time | Setup | Migration total across five fresh migrated databases |
+| --- | ---: | ---: | ---: |
+| First run, relevant images/build cache absent | 51.589 s | 44.563 s | 276 ms |
+| Warm run 1 | 9.881 s | 2.142 s | 406 ms |
+| Warm run 2 | 7.849 s | 2.122 s | 296 ms |
+
+The median of the two warm wall-time samples is 8.865 s. Each check executed all
+six scenarios. Scenario durations ranged from 493 to 1,624 ms across these runs;
+they include SQL setup and application-container startup as well as HTTP checks.
+Three samples characterize this fixture only; they do not establish a latency
+distribution. "Migration total" sums five separate executions of the same DDL,
+not one production deployment.
+
 ## Environment and workload
 
 - GitHub-hosted Ubuntu 24.04.5 LTS, Linux x86-64, 4 logical CPUs.

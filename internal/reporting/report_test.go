@@ -236,3 +236,30 @@ func TestShortSecretsDoNotCorruptResultEnumsOrIdentities(t *testing.T) {
 		t.Fatalf("redaction changed CLI result: %d", reportingExit)
 	}
 }
+
+func TestShortSecretsPreserveLocalPathsNeededForReproduction(t *testing.T) {
+	report := evidence()
+	report.Config = "C:/work/compass/releaseproof.yaml"
+	report.MigrationFiles = []string{"sql/password_expansion.sql"}
+	report.Scenarios[0].Reproduce = `releaseproof reproduce old-after --report "C:/work/compass/.releaseproof/run/report.json"`
+	report.Scenarios[0].Error = "password was pass"
+	report.Scenarios[0].Steps[0].Body = `{"credential":"pass"}`
+	clean := NewRedactor("pass").Clean(report)
+	if clean.Config != report.Config || len(clean.MigrationFiles) != 1 || clean.MigrationFiles[0] != report.MigrationFiles[0] || clean.Scenarios[0].Reproduce != report.Scenarios[0].Reproduce {
+		t.Fatalf("redaction corrupted local reproduction paths: %+v", clean)
+	}
+	if strings.Contains(clean.Scenarios[0].Error, "pass") || strings.Contains(clean.Scenarios[0].Steps[0].Body, "pass") {
+		t.Fatal("preserving local metadata disabled credential redaction in diagnostics")
+	}
+	path, err := Write(t.TempDir(), clean)
+	if err != nil {
+		t.Fatal(err)
+	}
+	read, err := Read(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if read.Config != report.Config || read.MigrationFiles[0] != report.MigrationFiles[0] || read.Scenarios[0].Reproduce != report.Scenarios[0].Reproduce {
+		t.Fatal("serialized metadata cannot locate the original configuration/report")
+	}
+}

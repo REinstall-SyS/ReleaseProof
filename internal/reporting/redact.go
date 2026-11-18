@@ -98,10 +98,14 @@ func (r *Redactor) Clean(report Report) Report {
 	// Preserve the report's schema-defined enums and content identities. A short
 	// credential such as "pass" must not change the meaning of a passing result,
 	// and a coincidental substring of a fingerprint must not break reproduction.
-	// Free-text diagnostics, names, versions, paths, and response data stay scrubbed.
+	// Local input paths and generated reproduction commands are also identities:
+	// redacting "pass" out of a checkout called "compass" makes reproduction fail.
+	// Free-text diagnostics, names, versions, HTTP paths, and response data stay scrubbed.
 	clean.Status = report.Status
 	clean.RunID = report.RunID
 	clean.Fingerprint = report.Fingerprint
+	clean.Config = report.Config
+	clean.MigrationFiles = append([]string(nil), report.MigrationFiles...)
 	for name, identity := range report.Images {
 		clean.Images[name] = identity
 	}
@@ -109,6 +113,7 @@ func (r *Redactor) Clean(report Report) Report {
 		clean.Scenarios[i].ID = report.Scenarios[i].ID
 		clean.Scenarios[i].Kind = report.Scenarios[i].Kind
 		clean.Scenarios[i].Status = report.Scenarios[i].Status
+		clean.Scenarios[i].Reproduce = report.Scenarios[i].Reproduce
 		for j := range clean.Scenarios[i].Steps {
 			clean.Scenarios[i].Steps[j].App = report.Scenarios[i].Steps[j].App
 			clean.Scenarios[i].Steps[j].Method = report.Scenarios[i].Steps[j].Method
