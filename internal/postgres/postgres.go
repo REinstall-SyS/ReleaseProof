@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/REinstall-SyS/ReleaseProof/internal/reporting"
+	"github.com/REinstall-SyS/ReleaseProof/internal/sqltext"
 	"github.com/jackc/pgx/v5"
 )
 
@@ -82,7 +83,6 @@ func Grant(ctx context.Context, address string, db Database) error {
 	return err
 }
 
-var metaCommand = regexp.MustCompile(`(?m)^\s*\\`)
 var copyStdin = regexp.MustCompile(`(?is)\bCOPY\b[^;]*\bFROM\s+STDIN\b`)
 
 // SQLFile intentionally accepts SQL only. psql handles statement boundaries,
@@ -93,10 +93,14 @@ func SQLFile(path string) (string, error) {
 		return "", err
 	}
 	sql := string(data)
-	if metaCommand.MatchString(sql) {
+	masked, complete := sqltext.Mask(sql)
+	if !complete {
+		return "", fmt.Errorf("unsupported unterminated SQL quote or comment in %s: provide complete SQL with standard_conforming_strings=on and E'...' for escaped strings", path)
+	}
+	if strings.ContainsRune(masked, '\\') {
 		return "", fmt.Errorf("unsupported psql metacommand in %s: provide SQL-only files", path)
 	}
-	if copyStdin.MatchString(sql) {
+	if copyStdin.MatchString(masked) {
 		return "", fmt.Errorf("unsupported COPY FROM STDIN in %s: use INSERT fixtures or SQL COPY with a container-local source", path)
 	}
 	return sql, nil
@@ -176,5 +180,3 @@ func Diff(before, after []Column) []reporting.Risk {
 	}
 	return risks
 }
-
-var _ = strings.TrimSpace

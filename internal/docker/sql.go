@@ -2,6 +2,8 @@ package docker
 
 import (
 	"context"
+	"crypto/rand"
+	"encoding/hex"
 	"fmt"
 	"os"
 	"os/exec"
@@ -14,7 +16,14 @@ import (
 // psql's parser sends each statement separately, allowing INDEX CONCURRENTLY.
 func (c *Client) SQL(ctx context.Context, container, database, user, password, sql string, timeout time.Duration) error {
 	options := "-c statement_timeout=" + strconv.FormatInt(timeout.Milliseconds(), 10) + " -c lock_timeout=" + strconv.FormatInt(timeout.Milliseconds(), 10)
-	args := []string{"exec", "--interactive", "--env", "PGPASSWORD", "--env", "PGOPTIONS=" + options, container, "psql", "--no-psqlrc", "--host", "127.0.0.1", "--username", user, "--dbname", database, "--set", "ON_ERROR_STOP=1", "--set", "VERBOSITY=verbose", "--file=-"}
+	var keyBytes [24]byte
+	if _, err := rand.Read(keyBytes[:]); err != nil {
+		return fmt.Errorf("SQL restriction key: %w", err)
+	}
+	// Restricted mode is enforced by psql itself, independently of our lexical
+	// checks. Only an unpredictable matching unrestrict command can leave it.
+	restrict := "\\restrict " + hex.EncodeToString(keyBytes[:])
+	args := []string{"exec", "--interactive", "--user", "postgres", "--env", "PGPASSWORD", "--env", "PGOPTIONS=" + options, container, "psql", "--no-psqlrc", "--host", "127.0.0.1", "--username", user, "--dbname", database, "--set", "ON_ERROR_STOP=1", "--set", "VERBOSITY=verbose", "--command", restrict, "--file=-"}
 	cmd := exec.CommandContext(ctx, c.Binary, args...)
 	cmd.Env = append(os.Environ(), "PGPASSWORD="+password)
 	cmd.Stdin = strings.NewReader(sql)

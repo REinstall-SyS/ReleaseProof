@@ -9,6 +9,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 	"time"
 
@@ -142,8 +143,22 @@ func Terminal(writer io.Writer, report Report) {
 	fmt.Fprintf(writer, "\nMigration: %s\n\n", strings.Join(report.MigrationFiles, ", "))
 	for _, scenario := range report.Scenarios {
 		fmt.Fprintf(writer, "[%s] %s (%s, %d ms)\n", strings.ToUpper(scenario.Status), scenario.Name, scenario.ID, scenario.DurationMS)
+	}
+	fmt.Fprintf(writer, "\nRESULT: %s (%d ms)\n", strings.ToUpper(report.Status), report.DurationMS)
+	for _, scenario := range report.Scenarios {
+		if scenario.Status == "pass" {
+			continue
+		}
+		fmt.Fprintf(writer, "\nScenario: %s (%s)\n", scenario.Name, scenario.ID)
+		versions := make([]string, 0, len(scenario.Versions))
+		for _, name := range orderedKeys(scenario.Versions) {
+			versions = append(versions, name+"="+scenario.Versions[name])
+		}
+		if len(versions) > 0 {
+			fmt.Fprintf(writer, "  Versions: %s\n", strings.Join(versions, ", "))
+		}
 		if scenario.Error != "" {
-			fmt.Fprintf(writer, "  %s\n", strings.ReplaceAll(scenario.Error, "\n", "\n  "))
+			fmt.Fprintf(writer, "  %s\n", strings.ReplaceAll(terminalClip(scenario.Error, 2048), "\n", "\n  "))
 		}
 		for _, step := range scenario.Steps {
 			if step.Error == "" {
@@ -152,22 +167,21 @@ func Terminal(writer io.Writer, report Report) {
 			fmt.Fprintf(writer, "  %s: %s %s → HTTP %d\n", step.App, step.Method, step.Path, step.Status)
 			for _, assertion := range step.Assertions {
 				if !assertion.Passed {
-					fmt.Fprintf(writer, "    %s: expected %s; actual %s", assertion.Pointer, jsonText(assertion.Expected), jsonText(assertion.Actual))
+					fmt.Fprintf(writer, "    %s: expected %s; actual %s", assertion.Pointer, terminalClip(jsonText(assertion.Expected), 1024), terminalClip(jsonText(assertion.Actual), 1024))
 					if assertion.Error != "" {
-						fmt.Fprintf(writer, " (%s)", assertion.Error)
+						fmt.Fprintf(writer, " (%s)", terminalClip(assertion.Error, 1024))
 					}
 					fmt.Fprintln(writer)
 				}
 			}
 			if step.Body != "" {
-				fmt.Fprintf(writer, "    Response: %s\n", strings.ReplaceAll(step.Body, "\n", "\n    "))
+				fmt.Fprintf(writer, "    Response: %s\n", strings.ReplaceAll(terminalClip(step.Body, 1024), "\n", "\n    "))
 			}
 		}
-		if scenario.Status != "pass" {
-			for name, logs := range scenario.Logs {
-				if logs != "" {
-					fmt.Fprintf(writer, "  %s logs:\n    %s\n", name, strings.ReplaceAll(logs, "\n", "\n    "))
-				}
+		for _, name := range orderedKeys(scenario.Logs) {
+			logs := terminalLogTail(scenario.Logs[name])
+			if logs != "" {
+				fmt.Fprintf(writer, "  %s logs (last 4 nonempty lines; full logs in JSON/HTML report):\n    %s\n", name, strings.ReplaceAll(terminalClip(logs, 1024), "\n", "\n    "))
 			}
 		}
 		if scenario.Status == "fail" || scenario.Status == "error" {
@@ -177,12 +191,40 @@ func Terminal(writer io.Writer, report Report) {
 		}
 	}
 	for _, risk := range report.Risks {
-		fmt.Fprintf(writer, "[RISK %s] %s: %s\n", risk.Code, risk.File, risk.Message)
+		fmt.Fprintf(writer, "[RISK %s] %s: %s\n", risk.Code, risk.File, terminalClip(risk.Message, 1024))
 	}
 	if report.Error != "" {
-		fmt.Fprintf(writer, "\nExecution error: %s\n", report.Error)
+		fmt.Fprintf(writer, "\nExecution error: %s\n", terminalClip(report.Error, 2048))
 	}
-	fmt.Fprintf(writer, "\nRESULT: %s (%d ms)\n", strings.ToUpper(report.Status), report.DurationMS)
+}
+
+func terminalClip(value string, limit int) string {
+	if len(value) <= limit {
+		return value
+	}
+	return strings.ToValidUTF8(value[:limit], "�") + "\n[truncated; full evidence in JSON/HTML report]"
+}
+
+func terminalLogTail(value string) string {
+	var lines []string
+	for _, line := range strings.Split(strings.ReplaceAll(value, "\r\n", "\n"), "\n") {
+		if strings.TrimSpace(line) != "" {
+			lines = append(lines, line)
+		}
+	}
+	if len(lines) > 4 {
+		lines = lines[len(lines)-4:]
+	}
+	return strings.Join(lines, "\n")
+}
+
+func orderedKeys[T any](values map[string]T) []string {
+	keys := make([]string, 0, len(values))
+	for key := range values {
+		keys = append(keys, key)
+	}
+	sort.Strings(keys)
+	return keys
 }
 
 func jsonText(value any) string {

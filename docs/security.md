@@ -1,5 +1,11 @@
 # Security model
 
+SQL files run through psql restricted mode with a fresh unpredictable restriction
+key, as a second guard after lexical rejection of metacommands. The PostgreSQL
+image must include a patched psql supporting `\restrict` (the default 17.12 image
+does). SQL remains trusted executable input. Lexical validation assumes
+`standard_conforming_strings=on`; changing it inside scripts is unsupported.
+
 Run ReleaseProof only with configurations, SQL, application images, and Docker
 build contexts that you trust. It starts arbitrary application processes and runs
 developer-supplied migrations. Docker access is a powerful host capability;
@@ -55,8 +61,10 @@ against a production daemon; select a disposable local development daemon.
 ## Credentials and reports
 
 Generated database passwords are unique to temporary resources. Reports redact
-known credentials, configured environment values, and recognized database URLs
-before rendering. The same sanitized report feeds terminal, JSON, and HTML output.
+known credentials, values under recognized sensitive environment keys, and
+recognized database URLs before rendering. The same sanitized report feeds
+terminal, JSON, and HTML output. Environment keys containing `PASSWORD`, `SECRET`,
+`TOKEN`, `KEY`, `CREDENTIAL`, `DSN`, or `DATABASE_URL` are treated as sensitive.
 
 Redaction is defense in depth, not a guarantee that arbitrary application output
 is free of sensitive information. An application can encode or transform a secret,

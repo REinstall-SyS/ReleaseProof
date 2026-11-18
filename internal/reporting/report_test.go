@@ -61,6 +61,56 @@ func TestTerminalShowsActualFailures(t *testing.T) {
 	}
 }
 
+func TestTerminalLeadsWithFullMatrixAndBoundsDiagnosticsOnly(t *testing.T) {
+	report := evidence()
+	report.Scenarios = append(report.Scenarios, Scenario{ID: "new-after", Name: "New reads migrated schema", Kind: "new_after", Status: "pass"})
+	report.Scenarios[0].Steps[0].Body = strings.Repeat("x", 1200) + "UNTRUNCATED_RESPONSE_END"
+	report.Scenarios[0].Logs = map[string]string{"z-app": "boot-old\n\nline-2\nline-3\nline-4\nline-5\nline-6\n", "a-postgres": "database column error"}
+	report.Error = strings.Repeat("e", 2200) + "UNTRUNCATED_ERROR_END"
+	var output bytes.Buffer
+	Terminal(&output, report)
+	text := output.String()
+	matrixLast := strings.Index(text, "[PASS] New reads migrated schema")
+	verdict := strings.Index(text, "RESULT: INCOMPATIBLE")
+	details := strings.Index(text, "Scenario: Old reads migrated schema")
+	if matrixLast < 0 || verdict <= matrixLast || details <= verdict {
+		t.Fatalf("full matrix and verdict must precede diagnostics: %s", text)
+	}
+	for _, expected := range []string{"Versions: old=v1", "HTTP 500", "database column error", "releaseproof reproduce old-after", "[truncated; full evidence in JSON/HTML report]", "full logs in JSON/HTML report", "line-3", "line-6"} {
+		if !strings.Contains(text, expected) {
+			t.Errorf("terminal lost required concise evidence %q: %s", expected, text)
+		}
+	}
+	for _, omitted := range []string{"UNTRUNCATED_RESPONSE_END", "UNTRUNCATED_ERROR_END", "boot-old", "line-2"} {
+		if strings.Contains(text, omitted) {
+			t.Errorf("terminal diagnostic was not bounded: %q", omitted)
+		}
+	}
+	if strings.Index(text, "a-postgres logs") > strings.Index(text, "z-app logs") {
+		t.Error("terminal log order is nondeterministic")
+	}
+	path, err := Write(t.TempDir(), report)
+	if err != nil {
+		t.Fatal(err)
+	}
+	read, err := Read(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if read.Scenarios[0].Steps[0].Body != report.Scenarios[0].Steps[0].Body || read.Scenarios[0].Logs["z-app"] != report.Scenarios[0].Logs["z-app"] || read.Error != report.Error {
+		t.Fatal("terminal clipping reduced full JSON evidence")
+	}
+	html, err := os.ReadFile(filepath.Join(filepath.Dir(path), "report.html"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, fullEvidence := range []string{"UNTRUNCATED_RESPONSE_END", "UNTRUNCATED_ERROR_END", "boot-old"} {
+		if !bytes.Contains(html, []byte(fullEvidence)) {
+			t.Errorf("terminal clipping reduced HTML evidence: missing %s", fullEvidence)
+		}
+	}
+}
+
 func TestExitCodeContract(t *testing.T) {
 	for status, expected := range map[string]int{"compatible": 0, "incompatible": 1, "baseline_failed": 3, "error": 3, "": 3, "unsupported": 3} {
 		if actual := ExitCode(Report{Status: status}); actual != expected {
@@ -149,5 +199,40 @@ func TestRedactionAndSerializationPreserveLargeNumericEvidence(t *testing.T) {
 	assertion := read.Scenarios[0].Steps[0].Assertions[0]
 	if assertion.Actual != json.Number("9007199254740993") || assertion.Expected != json.Number("9007199254740992") {
 		t.Fatalf("report rounded large numeric evidence: %+v", assertion)
+	}
+}
+
+func TestShortSecretsDoNotCorruptResultEnumsOrIdentities(t *testing.T) {
+	report := evidence()
+	report.RunID = "run-pass-old"
+	report.Fingerprint = "pass-old-content-hash"
+	report.Images["old"] = "sha256:pass-old-image"
+	report.Status = "compatible"
+	report.Error = "credential pass from old application"
+	report.Scenarios[0].ID = "old-pass"
+	report.Scenarios[0].Kind = "old_after"
+	report.Scenarios[0].Status = "pass"
+	report.Scenarios[0].Error = "pass old GET"
+	report.Scenarios[0].Steps[0].App = "old"
+	report.Scenarios[0].Steps[0].Method = "GET"
+	report.Scenarios[0].Steps[0].Body = "password is pass; version old; verb GET"
+	report.Scenarios[0].Logs["old"] = "credential pass"
+	clean := NewRedactor("pass", "old", "GET").Clean(report)
+	if clean.Status != "compatible" || clean.Scenarios[0].Status != "pass" || clean.Scenarios[0].Kind != "old_after" || clean.Scenarios[0].Steps[0].App != "old" || clean.Scenarios[0].Steps[0].Method != "GET" {
+		t.Fatalf("short credential changed result semantics: %+v", clean)
+	}
+	if clean.RunID != report.RunID || clean.Fingerprint != report.Fingerprint || clean.Images["old"] != report.Images["old"] || clean.Scenarios[0].ID != report.Scenarios[0].ID {
+		t.Fatalf("redaction changed stable metadata needed for reproduction: %+v", clean)
+	}
+	if _, present := clean.Scenarios[0].Versions["old"]; !present {
+		t.Fatal("redaction changed schema map keys")
+	}
+	for _, text := range []string{clean.Error, clean.Scenarios[0].Error, clean.Scenarios[0].Steps[0].Body, clean.Scenarios[0].Logs["old"]} {
+		if strings.Contains(text, "pass") || strings.Contains(text, "old") || strings.Contains(text, "GET") {
+			t.Errorf("short credential remains in free-text evidence: %s", text)
+		}
+	}
+	if reportingExit := ExitCode(clean); reportingExit != 0 {
+		t.Fatalf("redaction changed CLI result: %d", reportingExit)
 	}
 }

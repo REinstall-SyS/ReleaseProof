@@ -15,6 +15,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/jackc/pgx/v5"
+
 	"github.com/REinstall-SyS/ReleaseProof/internal/config"
 	"github.com/REinstall-SyS/ReleaseProof/internal/docker"
 	"github.com/REinstall-SyS/ReleaseProof/internal/postgres"
@@ -142,6 +144,103 @@ func TestIntegrationDatabaseConnectionFailure(t *testing.T) {
 	}
 	if !errors.Is(err, context.DeadlineExceeded) || !strings.Contains(err.Error(), "PostgreSQL readiness") || strings.Contains(err.Error(), "connection-failure-secret") {
 		t.Fatalf("unhelpful or credential-bearing connection error: %v", err)
+	}
+}
+
+func TestIntegrationApplicationPrivilegesAreRestricted(t *testing.T) {
+	c := loadDemo(t, "safe.yaml")
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
+	defer cancel()
+	id := postgres.Secret()[:16]
+	engine, err := docker.New(ctx, id)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() {
+		cleanupCtx, cleanupCancel := context.WithTimeout(context.Background(), time.Minute)
+		defer cleanupCancel()
+		if err := engine.Cleanup(cleanupCtx); err != nil {
+			t.Errorf("privilege test cleanup: %v", err)
+		}
+		assertNoOwnedResources(t, id)
+	}()
+	if err := engine.CreateNetwork(ctx); err != nil {
+		t.Fatal(err)
+	}
+	image, _, err := engine.PrepareImage(ctx, "postgres", config.App{Image: c.Postgres.Image}, c.Resolve)
+	if err != nil {
+		t.Fatal(err)
+	}
+	password := postgres.Secret()
+	address, err := engine.CreateContainer(ctx, "releaseproof-"+id+"-pg", image, 5432, map[string]string{"POSTGRES_USER": "postgres", "POSTGRES_PASSWORD": password, "POSTGRES_DB": "postgres"}, nil, true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	readyCtx, readyCancel := context.WithTimeout(ctx, 30*time.Second)
+	admin, err := postgres.Connect(readyCtx, postgres.DSN(address, "postgres", "postgres", password))
+	readyCancel()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer admin.Close(context.Background())
+	db, err := postgres.Create(ctx, admin, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// Defense in depth: even a script handed directly to the execution layer
+	// cannot invoke psql metacommands. The SQL-file lexer is not the sole guard.
+	if err := engine.SQL(ctx, "releaseproof-"+id+"-pg", db.Name, db.Owner, db.OwnerPassword, "SELECT 1;\n\\echo forbidden\n", 5*time.Second); err == nil || !strings.Contains(err.Error(), "restricted") {
+		t.Fatalf("psql restricted mode did not reject metacommand: %v", err)
+	}
+	owner, err := pgx.Connect(ctx, postgres.DSN(address, db.Name, db.Owner, db.OwnerPassword))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer owner.Close(context.Background())
+	assertRestrictedRole(t, ctx, owner)
+	if _, err := owner.Exec(ctx, "CREATE TABLE privilege_probe (id integer PRIMARY KEY, value text NOT NULL)"); err != nil {
+		t.Fatalf("non-superuser migration owner cannot create its schema: %v", err)
+	}
+	if err := postgres.Grant(ctx, address, db); err != nil {
+		t.Fatal(err)
+	}
+	application, err := pgx.Connect(ctx, postgres.DSN(address, db.Name, db.AppUser, db.AppPassword))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer application.Close(context.Background())
+	assertRestrictedRole(t, ctx, application)
+	if _, err := application.Exec(ctx, "INSERT INTO privilege_probe VALUES (1,'before'); UPDATE privilege_probe SET value='after' WHERE id=1"); err != nil {
+		t.Fatalf("application role cannot perform ordinary DML: %v", err)
+	}
+	var value string
+	if err := application.QueryRow(ctx, "SELECT value FROM privilege_probe WHERE id=1").Scan(&value); err != nil || value != "after" {
+		t.Fatalf("application DML did not persist: value=%q err=%v", value, err)
+	}
+	for _, sql := range []string{"CREATE TABLE forbidden_table (id integer)", "ALTER TABLE privilege_probe ADD COLUMN forbidden text", "CREATE ROLE forbidden_role", "CREATE DATABASE forbidden_database", "SELECT rolpassword FROM pg_authid"} {
+		if _, err := application.Exec(ctx, sql); err == nil {
+			t.Errorf("application role unexpectedly permitted privileged operation: %s", sql)
+		}
+	}
+	other, err := postgres.Create(ctx, admin, 1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	crossScenario, err := pgx.Connect(ctx, postgres.DSN(address, other.Name, db.AppUser, db.AppPassword))
+	if crossScenario != nil {
+		crossScenario.Close(context.Background())
+	}
+	if err == nil {
+		t.Error("one scenario's application role could connect to another scenario's database")
+	}
+}
+
+func assertRestrictedRole(t *testing.T, ctx context.Context, connection *pgx.Conn) {
+	t.Helper()
+	var superuser, createDB, createRole, replication bool
+	err := connection.QueryRow(ctx, "SELECT rolsuper,rolcreatedb,rolcreaterole,rolreplication FROM pg_roles WHERE rolname=current_user").Scan(&superuser, &createDB, &createRole, &replication)
+	if err != nil || superuser || createDB || createRole || replication {
+		t.Fatalf("role is not appropriately restricted: superuser=%v createdb=%v createrole=%v replication=%v err=%v", superuser, createDB, createRole, replication, err)
 	}
 }
 

@@ -25,9 +25,9 @@ Keep these available:
 4. A local Linux Docker daemon and any declared external dependencies.
 
 Reports do not contain a source archive or a database snapshot. Generated database
-credentials and temporary container state are not reproduction inputs. A complete
-checkout at the recorded source commit plus retained immutable application images
-is a useful way to retain the required material.
+credentials and temporary container state are not reproduction inputs. Retain the
+source commit alongside the report and keep matching immutable application images;
+the report's input fingerprint does not itself archive or name a Git commit.
 
 Default evidence is written to the configuration-relative
 `.releaseproof/<run-id>/report.json` and `report.html`. These files persist until

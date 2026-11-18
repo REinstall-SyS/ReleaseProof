@@ -10,6 +10,7 @@ import (
 
 	"github.com/REinstall-SyS/ReleaseProof/internal/config"
 	"github.com/REinstall-SyS/ReleaseProof/internal/reporting"
+	"github.com/REinstall-SyS/ReleaseProof/internal/sqltext"
 )
 
 type rule struct {
@@ -60,117 +61,7 @@ func Scan(c *config.Config) []reporting.Risk {
 
 var indexDDL = regexp.MustCompile(`(?i)\bCREATE\s+(?:UNIQUE\s+)?INDEX\b`)
 var concurrently = regexp.MustCompile(`(?i)^CONCURRENTLY\b`)
-var dollarTag = regexp.MustCompile(`^\$(?:[A-Za-z_][A-Za-z0-9_]*)?\$`)
 
-// mask preserves byte positions/newlines and quoted identifier boundaries. Escape strings
-// are handled conservatively as allowing backslash escapes; SQL execution is the
-// authority on syntax. PostgreSQL nested block comments are supported.
-func mask(input string) (string, bool) {
-	out := []byte(input)
-	blank := func(start, end int) {
-		for j := start; j < end; j++ {
-			if out[j] != '\n' && out[j] != '\r' {
-				out[j] = ' '
-			}
-		}
-	}
-	for i := 0; i < len(input); {
-		if strings.HasPrefix(input[i:], "--") {
-			end := strings.IndexByte(input[i:], '\n')
-			if end < 0 {
-				end = len(input)
-			} else {
-				end += i
-			}
-			blank(i, end)
-			i = end
-			continue
-		}
-		if strings.HasPrefix(input[i:], "/*") {
-			start := i
-			depth := 1
-			i += 2
-			for i < len(input) && depth > 0 {
-				if strings.HasPrefix(input[i:], "/*") {
-					depth++
-					i += 2
-				} else if strings.HasPrefix(input[i:], "*/") {
-					depth--
-					i += 2
-				} else {
-					i++
-				}
-			}
-			blank(start, i)
-			if depth != 0 {
-				return string(out), false
-			}
-			continue
-		}
-		if input[i] == '\'' {
-			start := i
-			i++
-			closed := false
-			for i < len(input) {
-				if input[i] == '\\' && i+1 < len(input) {
-					i += 2
-					continue
-				}
-				if input[i] == '\'' {
-					if i+1 < len(input) && input[i+1] == '\'' {
-						i += 2
-						continue
-					}
-					i++
-					closed = true
-					break
-				}
-				i++
-			}
-			blank(start, i)
-			if !closed {
-				return string(out), false
-			}
-			continue
-		}
-		if input[i] == '"' {
-			start := i
-			i++
-			closed := false
-			for i < len(input) {
-				if input[i] == '"' {
-					if i+1 < len(input) && input[i+1] == '"' {
-						i += 2
-						continue
-					}
-					i++
-					closed = true
-					break
-				}
-				i++
-			}
-			if !closed {
-				return string(out), false
-			}
-			blank(start+1, i-1)
-			continue
-		}
-		if input[i] == '$' {
-			tag := dollarTag.FindString(input[i:])
-			if tag != "" {
-				start := i
-				i += len(tag)
-				end := strings.Index(input[i:], tag)
-				if end < 0 {
-					blank(start, len(input))
-					return string(out), false
-				}
-				i += end + len(tag)
-				blank(start, i)
-				continue
-			}
-		}
-		i++
-	}
-	return string(out), true
-}
+// mask keeps the existing package-local test seam; shared SQL-only validation
+// uses exactly the same lexical rules.
+func mask(input string) (string, bool) { return sqltext.Mask(input) }

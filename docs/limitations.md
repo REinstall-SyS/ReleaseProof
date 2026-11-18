@@ -69,6 +69,10 @@ all outages or that untested business behavior remains correct.
   metadata. Mutable image tags, nondeterministic builds, external dependencies, or
   missing images can prevent an exact rerun. Preserve immutable image references
   and dependency locks when stronger repeatability is needed.
+- Local build input fingerprinting rejects symlinks and conservatively includes
+  regular source files beyond Docker's exact `.dockerignore` selection. Keep build
+  contexts focused. Source/documentation changes inside a broad context can require
+  a fresh experiment even when they do not affect the compiled application.
 - Reports capture bounded HTTP response bodies and log excerpts. Large responses
   fail the configured check rather than being silently treated as fully inspected.
   Log truncation means earlier application diagnostics may not be present.

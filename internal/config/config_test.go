@@ -236,6 +236,11 @@ func TestFingerprintIncludesSQLAndBuildInputs(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
+	for _, name := range []string{"unit-tests.txt", "integration-tests.txt"} {
+		if err := os.WriteFile(c.Resolve(name), []byte("CI execution log"), 0600); err != nil {
+			t.Fatal(err)
+		}
+	}
 	ignored, err := c.Fingerprint()
 	if err != nil || ignored != after {
 		t.Fatalf("runtime artifacts changed fingerprint: %v", err)

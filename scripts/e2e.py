@@ -3,6 +3,7 @@ import json
 import os
 from pathlib import Path
 import subprocess
+import uuid
 
 ROOT = Path(__file__).resolve().parents[1]
 BIN = ROOT / "bin" / ("releaseproof.exe" if os.name == "nt" else "releaseproof")
@@ -10,7 +11,7 @@ ARTIFACTS = ROOT / ".releaseproof" / "e2e"
 
 
 def run(label, config, expected, extra=None):
-    output = ARTIFACTS / label
+    output = ARTIFACTS / f"{label}-{uuid.uuid4().hex[:12]}"
     args = [str(BIN), "check", "--config", str(ROOT / config), "--output", str(output)]
     if extra:
         args = extra + ["--output", str(output)]

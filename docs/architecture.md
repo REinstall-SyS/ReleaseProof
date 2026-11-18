@@ -127,7 +127,8 @@ into a compatibility success.
 
 Run metadata records the configuration identity, SQL and local build input
 fingerprint, scenario identifiers, and resolved image identities. Reproduction
-needs the original local configuration, SQL, build inputs or images, and metadata.
+verifies the source fingerprint and resolved image IDs, and needs the original
+local configuration, SQL, build inputs or images, and metadata.
 The source fingerprint detects changed files; it does not snapshot the filesystem,
 container registry, network services, or build environment. Preserve those inputs
 when sharing a reproduction. A mutable image tag alone is not an immutable input.
@@ -136,10 +137,10 @@ Contexts propagate cancellation to Docker subprocesses and HTTP/SQL operations.
 Cleanup runs on successful checks, failed checks, and ordinary handled process
 interruption, using its own bounded context so an already-cancelled run can still
 remove owned resources. Ownership labels are checked before container removal.
-Application containers are removed before their database resources; the run's
-PostgreSQL container, network, anonymous volumes, and generated image tags are
-also removed. See [security.md](security.md) for manual recovery after a hard kill
-or host failure.
+Scenario cleanup removes application containers; run cleanup removes remaining
+owned containers, the PostgreSQL container, network, anonymous volumes, and
+generated image tags. See [security.md](security.md) for manual recovery after a
+hard kill or host failure.
 
 ## Package responsibilities
 

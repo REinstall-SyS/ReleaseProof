@@ -30,13 +30,44 @@ func TestSecretsAreUnique(t *testing.T) {
 	}
 }
 func TestSQLFileRejectsHostMetaCommands(t *testing.T) {
-	for _, sql := range []string{"\\! echo unsafe", "SELECT 1;\n\\connect other", "COPY users FROM STDIN;"} {
+	for _, sql := range []string{
+		"\\! echo unsafe",
+		"SELECT 1;\n\\connect other",
+		`SELECT 1; \! echo unsafe`,
+		`SELECT 'DROP TABLE users' \gexec`,
+		`SELECT '\'; \! echo unsafe`,
+		`COPY users FROM STDIN;`,
+		`COPY "users" FROM /* comment */ STDIN;`,
+		`SELECT 'unterminated`,
+		`/* unterminated`,
+	} {
 		path := filepath.Join(t.TempDir(), "migration.sql")
 		if err := os.WriteFile(path, []byte(sql), 0600); err != nil {
 			t.Fatal(err)
 		}
 		if _, err := SQLFile(path); err == nil {
 			t.Fatalf("accepted unsupported script: %s", sql)
+		}
+	}
+}
+func TestSQLFilePreservesLiteralBackslashesAndRegex(t *testing.T) {
+	for _, sql := range []string{
+		`SELECT '\path', '\\literal', 'it''s quoted';`,
+		`SELECT E'escaped\' quote \\ backslash';`,
+		`SELECT 'abc' ~ '^\w+\d+$';`,
+		`SELECT "column\name" FROM users;`,
+		`DO $body$ BEGIN RAISE NOTICE '\gexec stays literal'; END $body$;`,
+		`-- \! stays a comment
+SELECT 1; /* \gexec stays a comment */`,
+		`SELECT 'COPY users FROM STDIN';`,
+	} {
+		path := filepath.Join(t.TempDir(), "migration.sql")
+		if err := os.WriteFile(path, []byte(sql), 0600); err != nil {
+			t.Fatal(err)
+		}
+		got, err := SQLFile(path)
+		if err != nil || got != sql {
+			t.Fatalf("SQL literal changed or rejected: %q (%v)", got, err)
 		}
 	}
 }

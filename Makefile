@@ -10,7 +10,7 @@ lint:
 test:
 	go test -race -count=1 ./...
 integration:
-	go test -tags integration -count=1 -timeout 25m -v ./internal/runner
+	go test -race -tags integration -count=1 -timeout 25m -v ./internal/runner
 e2e: build
 	python3 scripts/e2e.py
 demo-safe: build

@@ -409,7 +409,7 @@ func (c *Config) Fingerprint() (string, error) {
 					}
 					return nil
 				}
-				if d.Name() == "coverage.out" || strings.HasSuffix(d.Name(), ".test") || strings.HasSuffix(d.Name(), ".exe") {
+				if d.Name() == "coverage.out" || d.Name() == "unit-tests.txt" || d.Name() == "integration-tests.txt" || strings.HasSuffix(d.Name(), ".test") || strings.HasSuffix(d.Name(), ".exe") {
 					return nil
 				}
 				if d.Type()&os.ModeSymlink != 0 {

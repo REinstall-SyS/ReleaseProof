@@ -95,5 +95,24 @@ func (r *Redactor) Clean(report Report) Report {
 	if decoder.Decode(&clean) != nil {
 		return report
 	}
+	// Preserve the report's schema-defined enums and content identities. A short
+	// credential such as "pass" must not change the meaning of a passing result,
+	// and a coincidental substring of a fingerprint must not break reproduction.
+	// Free-text diagnostics, names, versions, paths, and response data stay scrubbed.
+	clean.Status = report.Status
+	clean.RunID = report.RunID
+	clean.Fingerprint = report.Fingerprint
+	for name, identity := range report.Images {
+		clean.Images[name] = identity
+	}
+	for i := range clean.Scenarios {
+		clean.Scenarios[i].ID = report.Scenarios[i].ID
+		clean.Scenarios[i].Kind = report.Scenarios[i].Kind
+		clean.Scenarios[i].Status = report.Scenarios[i].Status
+		for j := range clean.Scenarios[i].Steps {
+			clean.Scenarios[i].Steps[j].App = report.Scenarios[i].Steps[j].App
+			clean.Scenarios[i].Steps[j].Method = report.Scenarios[i].Steps[j].Method
+		}
+	}
 	return clean
 }

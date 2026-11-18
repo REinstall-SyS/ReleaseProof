@@ -24,10 +24,10 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 25
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
-      - uses: actions/setup-go@v7
+      - uses: actions/setup-go@d8cbb8045d7f43706b9177cceb36c1f91a6644d5 # v7.1.0
         with:
           go-version: '1.27.4'
       - name: Verify Docker
@@ -38,7 +38,7 @@ jobs:
         run: releaseproof check --config releaseproof.yaml --output .releaseproof
       - name: Retain executed evidence
         if: always()
-        uses: actions/upload-artifact@v6
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: releaseproof-evidence
           path: .releaseproof/
@@ -47,12 +47,12 @@ jobs:
           retention-days: 7
 ```
 
-The action major versions follow the current
+The action versions follow the current
 [checkout](https://github.com/actions/checkout),
 [setup-go](https://github.com/actions/setup-go), and
-[upload-artifact](https://github.com/actions/upload-artifact) documentation. For a
-stricter supply-chain policy, pin each action to a reviewed full commit SHA and
-maintain those pins.
+[upload-artifact](https://github.com/actions/upload-artifact) documentation. The
+example pins each action to a full commit SHA; review and maintain those pins when
+updating the workflow.
 
 The configuration must identify a real old application version and the proposed
 new version. Do not accidentally build the same source into both definitions and

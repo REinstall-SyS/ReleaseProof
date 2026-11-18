@@ -7,6 +7,7 @@ import platform
 import statistics
 import subprocess
 import time
+import uuid
 
 ROOT = Path(__file__).resolve().parents[1]
 
@@ -33,9 +34,12 @@ def main():
         "image_cache_before": command(["docker", "image", "ls", "--format", "{{.Repository}}:{{.Tag}} {{.ID}}"]),
         "builder_cache_before": command(["docker", "system", "df"]),
     }
+    cpuinfo = Path('/proc/cpuinfo')
+    if cpuinfo.exists():
+        environment['cpu_model'] = next((line.split(':', 1)[1].strip() for line in cpuinfo.read_text().splitlines() if line.startswith('model name')), platform.processor())
     samples = []
     for index in range(args.runs):
-        output = args.output / f"run-{index + 1}"
+        output = args.output / f"run-{index + 1}-{uuid.uuid4().hex[:12]}"
         start = time.perf_counter()
         result = subprocess.run([str(binary), "check", "--config", "examples/rolling-deployment/safe.yaml", "--output", str(output)], cwd=ROOT, text=True, capture_output=True, timeout=600)
         elapsed = (time.perf_counter() - start) * 1000
