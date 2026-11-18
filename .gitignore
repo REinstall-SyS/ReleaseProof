@@ -1,0 +1,11 @@
+.tools/
+bin/
+.releaseproof/
+coverage.out
+*.test
+*.exe
+.env
+__pycache__/
+*.pyc
+unit-tests.txt
+integration-tests.txt

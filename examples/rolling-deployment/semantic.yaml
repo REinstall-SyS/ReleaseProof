@@ -1,0 +1,106 @@
+# Semantic regression: both versions return HTTP 200 but representations diverge.
+# Paths are relative to this configuration file.
+version: 1
+postgres:
+  image: postgres:17.12-alpine
+baseline: sql/baseline.sql
+seed: sql/seed.sql
+migrations:
+  - sql/002_dual_write_only.sql
+timeout: 60s
+apps:
+  old:
+    version: v1-full-name
+    build: ../..
+    dockerfile: examples/rolling-deployment/Dockerfile.old
+    port: 8080
+    health: /health
+  new:
+    version: v2-split-name
+    build: ../..
+    dockerfile: examples/rolling-deployment/Dockerfile.new
+    port: 8080
+    health: /health
+scenarios:
+  - id: baseline
+    name: Old application reads the baseline schema
+    kind: baseline
+    steps:
+      - name: Read a seeded user before migration
+        app: old
+        method: GET
+        path: /users/7
+        expect:
+          status: 200
+          json:
+            /id: 7
+            /full_name: Ada Lovelace
+  - id: old-after
+    name: Old application reads the migrated schema
+    kind: old_after
+    steps:
+      - name: Read the same seeded user after migration
+        app: old
+        method: GET
+        path: /users/7
+        expect:
+          status: 200
+          json:
+            /id: 7
+            /full_name: Ada Lovelace
+  - id: new-after
+    name: New application reads the migrated schema
+    kind: new_after
+    steps:
+      - name: Read backfilled first and last names
+        app: new
+        method: GET
+        path: /users/7
+        expect:
+          status: 200
+          json:
+            /id: 7
+            /first_name: Ada
+            /last_name: Lovelace
+  - id: old-to-new
+    name: Old update must be visible to the new application
+    kind: old_to_new
+    steps:
+      - name: Old application changes its full name field
+        app: old
+        method: PUT
+        path: /users/7
+        body:
+          full_name: Ada Byron
+        expect:
+          status: 200
+      - name: New application must see the changed last name
+        app: new
+        method: GET
+        path: /users/7
+        expect:
+          status: 200
+          json:
+            /first_name: Ada
+            /last_name: Byron
+  - id: new-to-old
+    name: New update must be visible to the old application
+    kind: new_to_old
+    steps:
+      - name: New application changes its split fields
+        app: new
+        method: PUT
+        path: /users/7
+        body:
+          first_name: Ada
+          last_name: King
+        expect:
+          status: 200
+      - name: Old application must see the changed full name
+        app: old
+        method: GET
+        path: /users/7
+        expect:
+          status: 200
+          json:
+            /full_name: Ada King

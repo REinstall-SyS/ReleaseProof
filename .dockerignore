@@ -1,0 +1,8 @@
+.git
+.tools
+.releaseproof
+**/.releaseproof
+bin
+coverage.out
+docs
+*.exe

@@ -1,0 +1,167 @@
+# Unsafe contract: a removed column breaks the still-running old version.
+# Paths are relative to this configuration file.
+version: 1
+postgres:
+  image: postgres:17.12-alpine
+baseline: sql/baseline.sql
+seed: sql/seed.sql
+migrations:
+  - sql/002_unsafe.sql
+timeout: 60s
+apps:
+  old:
+    version: v1-full-name
+    build: ../..
+    dockerfile: examples/rolling-deployment/Dockerfile.old
+    port: 8080
+    health: /health
+  new:
+    version: v2-split-name
+    build: ../..
+    dockerfile: examples/rolling-deployment/Dockerfile.new
+    port: 8080
+    health: /health
+scenarios:
+  - id: baseline
+    name: Old application reads the baseline schema
+    kind: baseline
+    steps:
+      - name: Read a seeded user before migration
+        app: old
+        method: GET
+        path: /users/7
+        expect:
+          status: 200
+          json:
+            /id: 7
+            /full_name: Ada Lovelace
+  - id: old-after
+    name: Old application reads the migrated schema
+    kind: old_after
+    steps:
+      - name: Read the same seeded user after migration
+        app: old
+        method: GET
+        path: /users/7
+        expect:
+          status: 200
+          json:
+            /id: 7
+            /full_name: Ada Lovelace
+  - id: new-after
+    name: New application reads the migrated schema
+    kind: new_after
+    steps:
+      - name: Read backfilled first and last names
+        app: new
+        method: GET
+        path: /users/7
+        expect:
+          status: 200
+          json:
+            /id: 7
+            /first_name: Ada
+            /last_name: Lovelace
+  - id: old-to-new
+    name: Old writes then new reads the same user
+    kind: old_to_new
+    steps:
+      - name: Old application creates a full name
+        app: old
+        method: POST
+        path: /users
+        body:
+          full_name: Alan Turing
+        expect:
+          status: 201
+        capture:
+          created_id: /id
+      - name: New application observes both split fields
+        app: new
+        method: GET
+        path: /users/{{created_id}}
+        expect:
+          status: 200
+          json:
+            /first_name: Alan
+            /last_name: Turing
+  - id: new-to-old
+    name: New writes then old reads the same user
+    kind: new_to_old
+    steps:
+      - name: New application creates split fields
+        app: new
+        method: POST
+        path: /users
+        body:
+          first_name: Katherine
+          last_name: Johnson
+        expect:
+          status: 201
+        capture:
+          created_id: /id
+      - name: Old application observes the synchronized full name
+        app: old
+        method: GET
+        path: /users/{{created_id}}
+        expect:
+          status: 200
+          json:
+            /full_name: Katherine Johnson
+  - id: mixed-update
+    name: Both versions repeatedly update a multiword name
+    kind: mixed
+    steps:
+      - name: Old version inserts a multiword remainder
+        app: old
+        method: POST
+        path: /users
+        body:
+          full_name: Mary Ann Smith
+        expect:
+          status: 201
+        capture:
+          created_id: /id
+      - name: New version reads the inserted representation
+        app: new
+        method: GET
+        path: /users/{{created_id}}
+        expect:
+          status: 200
+          json:
+            /first_name: Mary
+            /last_name: Ann Smith
+      - name: New version changes the last name
+        app: new
+        method: PUT
+        path: /users/{{created_id}}
+        body:
+          first_name: Mary
+          last_name: Ann Jones
+        expect:
+          status: 200
+      - name: Old version sees the new version's update
+        app: old
+        method: GET
+        path: /users/{{created_id}}
+        expect:
+          status: 200
+          json:
+            /full_name: Mary Ann Jones
+      - name: Old version changes the full name again
+        app: old
+        method: PUT
+        path: /users/{{created_id}}
+        body:
+          full_name: Mary Ann Brown
+        expect:
+          status: 200
+      - name: New version sees the old version's update
+        app: new
+        method: GET
+        path: /users/{{created_id}}
+        expect:
+          status: 200
+          json:
+            /first_name: Mary
+            /last_name: Ann Brown

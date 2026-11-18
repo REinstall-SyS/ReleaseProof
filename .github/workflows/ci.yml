@@ -1,0 +1,67 @@
+name: CI
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  verify:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 35
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-go@d8cbb8045d7f43706b9177cceb36c1f91a6644d5 # v7.1.0
+        with:
+          go-version: '1.27.4'
+          cache: false
+      - name: Resolve pinned modules
+        run: go mod tidy
+      - name: Format and static analysis
+        run: |
+          test -z "$(gofmt -l cmd internal examples/rolling-deployment/app)"
+          go vet ./...
+      - name: Unit tests with race detector
+        run: go test -race -count=1 -coverprofile=coverage.out ./... | tee unit-tests.txt
+      - name: Real PostgreSQL integration tests
+        run: go test -tags integration -count=1 -timeout 25m -v ./internal/runner | tee integration-tests.txt
+      - name: Build CLI
+        run: go build -trimpath -o bin/releaseproof ./cmd/releaseproof
+      - name: Executable demos, reports, and reproduction
+        run: python3 scripts/e2e.py
+      - name: Verify cleanup
+        if: always()
+        run: |
+          test -z "$(docker ps -aq --filter label=io.releaseproof.run)"
+          test -z "$(docker network ls -q --filter label=io.releaseproof.run)"
+      - name: Upload executed evidence
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: validation-evidence
+          include-hidden-files: true
+          path: |
+            go.mod
+            go.sum
+            coverage.out
+            unit-tests.txt
+            integration-tests.txt
+            .releaseproof/e2e/
+  benchmark:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+      - uses: actions/setup-go@d8cbb8045d7f43706b9177cceb36c1f91a6644d5
+        with:
+          go-version: '1.27.4'
+          cache: false
+      - run: go mod tidy
+      - run: go build -trimpath -o bin/releaseproof ./cmd/releaseproof
+      - run: python3 scripts/benchmark.py --runs 3
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
+        if: always()
+        with:
+          name: benchmark-evidence
+          include-hidden-files: true
+          path: .releaseproof/benchmark/
